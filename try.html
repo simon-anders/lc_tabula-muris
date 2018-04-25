@@ -1,0 +1,113 @@
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script src = "http:linked-charts.min.js"></script>
+<link rel = "stylesheet" href="http:linked-charts.css">
+
+
+<h2><i>Tabula muris</i> single-cell transcriptomics data</h2>
+<h2><b>Kidney</b> (plate data)</h2>
+
+<h3 id="loading">Loading data...</h3>
+<table><tr>
+  <td id="tsne">t-SNE plot</td>
+  <td id="heatmap">Gene expression heatmap 
+  <p id="selecthint">Select some cells on the t-SNE plot (left) with the mouse (while pressing shift)</p></td></tr>
+<tr>
+  <td>
+    Color cells by<br>
+    <input type="radio" name="cell_coloring" value="type" onchange="tsne_plot.update()" checked>cell type<br>
+    <input type="radio" name="cell_coloring" value="gene" onchange="tsne_plot.update()">
+       expression of gene <input type="text" id="gene_for_color" onchange="tsne_plot.update()">
+  </td>
+  <td>Genes to show in heat map:<br>
+    <textarea id="genelist" rows="10" cols="30" onchange="console.log('changed')"></textarea><br>
+    <button onclick="heatmap.update()">Update heat map</button>
+  </td></tr></table>
+
+<script>
+marker_genes = []
+kidney_facs_tsne = []
+celltype_facs = {}
+
+d3.queue()
+   .defer( d3.csv, "http:data/kidney_facs_tsne.csv" )
+   .defer( d3.csv, "http:data/annotations_FACS.csv" )
+   .defer( d3.csv, "http:data/FACS/Kidney-counts.csv" )
+   .defer( d3.csv, "http:data/tSNE_genes_all_tissues.csv")
+   .await( function( error, data1, data2, data3, data4 ) {
+
+      kidney_tsne = {}
+      for( i = 0; i < data1.length; i++ ) { 
+         kidney_tsne[ data1[i][""] ] = [ +data1[i].tSNE_1, +data1[i].tSNE_2 ] 
+      }
+
+      celltype = {}
+      for( i = 0; i < data2.length; i++ ) { 
+         celltype[ data2[i].cell ] = [ data2[i].cell_ontology_class ] 
+      }
+
+      
+      readcounts = {}
+      for( i = 0; i < data3.length; i++ ) { 
+         readcounts[ data3[i][""] ] = data3[i]
+      }    
+
+      marker_genes = []
+      for( i = 0; i < data4.length; i++ ) {
+         if( data4[i].Tissue == "Kidney" & data4[i].Platform == "Plate" )
+            if( data4[i].Gene in readcounts )
+               marker_genes.push( data4[i].Gene )
+      }
+      d3.select("#genelist").property( "value", marker_genes.join("\n") )
+
+      cell_x = Object.keys( kidney_tsne )[0]
+      cell_y = Object.keys( kidney_tsne )[1]
+
+      init_plots()
+
+      d3.select("#loading").remove()
+
+   } )
+
+init_plots = function() {
+
+
+   tsne_plot = lc.scatter()
+     .elementIds( Object.keys(kidney_tsne) )
+     .x(function(k) { return kidney_tsne[k][0] })
+     .y(function(k) { return kidney_tsne[k][1] })
+     .colourValue(function(k) { 
+         if( d3.select("input[value='type']").property("checked") ) {
+            return celltype[ k ] 
+         } else if( d3.select("input[value='gene']").property("checked") ) {
+            gene_for_color = d3.select("#gene_for_color").property("value")
+            return Math.sqrt(+readcounts[gene_for_color][k])
+         } else {
+            console.log("Error reading radio buttons")
+         }
+      })
+     .markedUpdated( function() { heatmap.update() } )
+     .place("#tsne");     
+
+   heatmap = lc.heatmap()
+     .mode("svg")
+     .rowIds( function() { return d3.select("#genelist").property("value").split("\n") } )   // genes
+     .colIds( function() { return tsne_plot.get_marked().filter( function(x) { return x[0] == "layer0" } ).map( function(x) { return x[1] } ) } )   // cells
+     .value( function( row, col ) { return( Math.sqrt(+readcounts[row][col])) } )
+     .elementMouseOver( function(row,col) { highlighted_cell = col; tsne_plot.update() } )
+     .place("#heatmap") 
+  
+   highlighted_cell = "M4.MAA000545.3_8_M.1.1"
+
+/*   lc.scatter( "highlight", tsne_plot )
+     .nelements( 1 )
+     .transitionDuration( 0 )
+     .x(function(k) { return kidney_tsne[highlighted_cell][0] })
+     .y(function(k) { return kidney_tsne[highlighted_cell][1] })
+     .stroke( "black" )
+     .colour( "none" )
+     .size( 15 )
+     .place_layer("highlight");
+*/
+   }
+
+</script>
